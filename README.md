@@ -83,6 +83,20 @@ pp --lint "your prompt"      # score it
 pp --offline "your prompt"   # build a full prompt, no API call
 ```
 
+### Set a repo up for agents
+
+```bash
+pp init ~/work/the-monorepo
+```
+
+Analyzes the repo and writes `.agents/` — codebase maps with `file:line` for
+every route, model, and component; a **test map** encoding what to run per
+iteration versus once at the end versus never; a GitLab work item template; and
+a `devin-setup.md` with the machine-snapshot steps and Knowledge entries to
+create. Plus `AGENTS.md` at the root so agents find it.
+
+No API call, so wire `pp init` into CI on merge and the maps cannot drift.
+
 Index your work repos once and they resolve from any directory:
 
 ```bash

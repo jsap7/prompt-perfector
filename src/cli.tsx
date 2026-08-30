@@ -19,6 +19,8 @@ import {
   removeIndex,
 } from "./core/repoIndex.js";
 import pathMod from "node:path";
+import { analyzeProject } from "./core/project.js";
+import { emitAgentFiles, writeFiles } from "./core/emit.js";
 import { bandLabel } from "./ui/theme.js";
 
 const c = {
@@ -45,6 +47,12 @@ ${c.bold("USAGE")}
   pp --offline "..."        build a full prompt with no API call, using your repo
   pp --auth                 show which credential PP is using
   pp --stats                what PP has saved you so far
+
+${c.bold("SET UP A REPO FOR AGENTS")}
+  pp init [path]            analyze a repo and write .agents/ — maps, test map,
+                            work item template, Devin setup. No API call.
+  pp init --dry-run         show what it found, write nothing
+  pp init --refresh         regenerate (wire this into CI on merge)
 
 ${c.bold("REPOS")}
   pp repo add <path>        index a repo so PP can resolve its files from anywhere
@@ -133,8 +141,63 @@ async function main() {
 
   // Only exact verbs count as subcommands, otherwise `pp "some request"`
   // would have its first word swallowed as a command name.
-  const SUBCOMMANDS = new Set(["knowledge", "playbook", "repo"]);
+  const SUBCOMMANDS = new Set(["knowledge", "playbook", "repo", "init"]);
   const sub = argv.find((a) => SUBCOMMANDS.has(a));
+
+  if (sub === "init") {
+    const rest = argv.filter((a) => a !== "init" && !a.startsWith("-"));
+    const target = rest[0]
+      ? pathMod.resolve(rest[0].replace(/^~/, process.env.HOME ?? "~"))
+      : process.cwd();
+    const dry = argv.includes("--dry-run");
+
+    process.stdout.write(c.dim(`analyzing ${target}…\n`));
+    try {
+      const started = Date.now();
+      const project = analyzeProject(target);
+      const files = emitAgentFiles(project);
+
+      process.stdout.write(
+        `\n  ${c.bold(project.name)}  ${c.dim(`${project.index.files.length} files · ${project.index.symbols.length} symbols`)}\n\n`,
+      );
+      for (const a of project.areas) {
+        process.stdout.write(
+          `  ${c.cyan(a.kind.padEnd(9))}${(a.dir || "(root)").padEnd(24)}${c.dim(a.stack.join(", ") || "—")}\n`,
+        );
+      }
+      process.stdout.write("\n");
+      for (const t of project.tests) {
+        process.stdout.write(
+          `  ${c.cyan(t.kind.padEnd(12))}${t.runner.padEnd(12)}${c.dim(`${t.fileCount} files`)}\n`,
+        );
+      }
+      process.stdout.write(
+        c.dim(`\n  ${project.routes.length} routes · ${project.models.length} models · ${project.components.length} components\n`),
+      );
+
+      if (dry) {
+        process.stdout.write(c.yellow(`\n  --dry-run, nothing written. Would write:\n`));
+        for (const f of files) process.stdout.write(c.dim(`    ${f.path}\n`));
+      } else {
+        writeFiles(target, files);
+        process.stdout.write(c.green(`\n  wrote ${files.length} files:\n`));
+        for (const f of files) process.stdout.write(c.dim(`    ${f.path}\n`));
+      }
+
+      if (project.unknowns.length) {
+        process.stdout.write(c.yellow(`\n  needs a human:\n`));
+        for (const u of project.unknowns) process.stdout.write(c.yellow(`    · ${u}\n`));
+      }
+      process.stdout.write(
+        c.dim(`\n  ${((Date.now() - started) / 1000).toFixed(1)}s · no API call\n`) +
+          c.dim(`  next: read .agents/devin-setup.md\n\n`),
+      );
+    } catch (e) {
+      process.stderr.write(c.red(`\n${e instanceof Error ? e.message : String(e)}\n\n`));
+      process.exitCode = 1;
+    }
+    return;
+  }
 
   if (sub === "repo") {
     const rest = argv.filter((a) => a !== "repo" && !a.startsWith("-"));

@@ -1,6 +1,7 @@
 # Agent workflow plan
 
-Planning doc, drafted August 2026. Not built yet — mark it up.
+Drafted August 2026. **`pp init` is now built** (§ The shape). The agents in
+§ The agents are still planned — mark them up.
 
 Target stack: **React frontend, Python backend, monorepo, unit + E2E tests,
 GitLab, Devin as the executing agent.**
@@ -18,12 +19,27 @@ The question for any new idea is only: *what are our agents rediscovering every
 single time?* Anything on that list is a candidate. Anything not on it is
 probably not worth building.
 
-## The shape: `pp init`
+## The shape: `pp init` — **built**
 
-PP becomes something you drop into a repo, which generates the substrate agents
-navigate by. Deterministic where possible — the map must be *generated*, never
-hand-written, because a hand-written map goes stale silently and a stale map is
-worse than none.
+PP is something you drop into a repo, which generates the substrate agents
+navigate by. Deterministic — the map is *generated*, never hand-written,
+because a hand-written map goes stale silently and a stale map is worse than
+none. No API call, so it can run in CI.
+
+Everything is discovered from the repo. You should not have to answer questions
+about your own layout; the answers are on disk, and asking is how tools like
+this end up unused.
+
+```bash
+pp init ~/work/the-monorepo      # analyze and write .agents/
+pp init --dry-run                # show what it found, write nothing
+```
+
+Verified against a React + Python monorepo fixture: it separates frontend and
+backend areas by manifest and dependencies, splits the four test suites
+(pytest unit, pytest integration, vitest, playwright), and extracts routes,
+models, and components with exact `file:line`. On a repo with no Python or
+routes it degrades to what it can actually find rather than inventing sections.
 
 ```
 pp init                    # analyze the repo, write .agents/
