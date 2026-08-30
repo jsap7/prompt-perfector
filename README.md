@@ -25,21 +25,59 @@ Rewriting a prompt costs a fraction of a cent. One avoided ACU is $2.25.
 
 ## Install
 
+Copy-paste the whole block. Takes about a minute.
+
 ```bash
+git clone git@github.com:jsap7/prompt-perfector.git
+cd prompt-perfector
 npm install
 npm run build
-npm link          # installs `ppf`
-export ANTHROPIC_API_KEY=sk-ant-...
+npm link
 ```
 
-Homebrew's `nss` package already owns a binary called `pp` (an ASN.1
-pretty-printer). Rather than clobber a brew-managed symlink — brew would
-restore it on the next upgrade and break the command — PP installs as `ppf`
-and an alias gives you the short name in your own shell:
+Then set up auth and the short name:
 
 ```bash
-alias pp="ppf"    # already added to ~/.zshrc
+# 1. credentials — either one works
+export ANTHROPIC_API_KEY=sk-ant-...     # add this line to ~/.zshrc to persist
+#   ...or, no key to manage at all:
+ant auth login
+
+# 2. short command name (see note below)
+echo 'alias pp="ppf"' >> ~/.zshrc
+
+# 3. reload and verify
+source ~/.zshrc
+pp --auth
 ```
+
+`pp --auth` should print `credentials: ANTHROPIC_API_KEY` (or
+`ant auth profile`). If it does, you're done:
+
+```bash
+pp
+```
+
+### Why the command is `ppf`
+
+Homebrew's `nss` package already owns `/opt/homebrew/bin/pp` — an ASN.1
+pretty-printer. Clobbering a brew-managed symlink would break on the next
+`brew upgrade`, so PP installs as `ppf` and the alias gives you `pp` in your
+own shell only.
+
+### Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `pp: command not found` | `source ~/.zshrc`, or check `npm link` succeeded |
+| `No Anthropic credentials found` | Run `pp --auth`. If you have an `export ANTHROPIC_API_KEY=` line with **no value**, delete it — an empty key shadows every other credential source |
+| `zsh: permission denied` on `npm link` | Your npm global dir needs write access: `sudo chown -R $(whoami) $(npm config get prefix)` |
+| Want to update later | `git pull && npm install && npm run build` |
+
+### No key yet?
+
+`pp --lint "your prompt"` works with no credentials at all — it scores prompts
+offline for free. Good way to try it before setting up auth.
 
 ## Use
 
