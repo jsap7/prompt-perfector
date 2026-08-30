@@ -111,11 +111,43 @@ present. See [docs/10-offline-mode.md](docs/10-offline-mode.md).
 
 ## Use
 
+**Prompts**
+
 ```bash
 pp                        # interactive — dictate straight into it
 pp "some request"         # perfect it, print, copy, exit
 echo "..." | pp           # from stdin
 pp --lint "some request"  # score only. no API call, free, instant
+pp --offline "..."        # build a full prompt with no API call, using your repo
+```
+
+**Set a repo up for agents**
+
+```bash
+pp init [path]            # write .agents/ — maps, test map, work item template
+pp repo add <path>        # index a repo so PP resolves its files from anywhere
+pp repo list              # show indexed repos
+```
+
+**Work items and CI** (small model — fractions of a cent per call)
+
+```bash
+pp issue "..."            # feature request → GitLab work item
+pp gate --file item.md    # ready for an agent? exits 1 if not
+pp triage --file ci.log   # classify a CI failure: real / flaky / environment
+```
+
+**Cut the fixed costs**
+
+```bash
+pp knowledge              # repo profiles → Devin Knowledge entries
+pp playbook [--list]      # task shapes you have repeated → a Playbook
+```
+
+**Diagnostics**
+
+```bash
+pp --auth                 # which credential PP is using
 pp --stats                # what PP has saved you so far
 pp --config               # create / print the config path
 ```
