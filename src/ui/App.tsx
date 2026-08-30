@@ -5,7 +5,7 @@ import { RiskBar } from "./RiskBar.js";
 import { SmellList } from "./SmellList.js";
 import { ResultView } from "./ResultView.js";
 import { analyze } from "../core/lint.js";
-import { runPipeline } from "../core/run.js";
+import { runPipeline, runOffline } from "../core/run.js";
 import { copy } from "../core/clipboard.js";
 import type { Config } from "../core/config.js";
 import type { Result } from "../core/types.js";
@@ -27,7 +27,15 @@ function Spinner({ note }: { note: string }) {
   );
 }
 
-export function App({ config, initial }: { config: Config; initial?: string }) {
+export function App({
+  config,
+  initial,
+  offline = false,
+}: {
+  config: Config;
+  initial?: string;
+  offline?: boolean;
+}) {
   const { exit } = useApp();
   const [mode, setMode] = useState<Mode>(initial ? "working" : "input");
   const [raw, setRaw] = useState(initial ?? "");
@@ -49,6 +57,11 @@ export function App({ config, initial }: { config: Config; initial?: string }) {
       setMode("working");
       setCopied(false);
       try {
+        if (offline) {
+          setResult(runOffline(text, config));
+          setMode("result");
+          return;
+        }
         const r = await runPipeline(
           text,
           config,
@@ -63,7 +76,7 @@ export function App({ config, initial }: { config: Config; initial?: string }) {
         setMode("error");
       }
     },
-    [config, result],
+    [config, result, offline],
   );
 
   React.useEffect(() => {
@@ -109,6 +122,7 @@ export function App({ config, initial }: { config: Config; initial?: string }) {
         </Text>
         <Text bold> prompt perfector</Text>
         <Text dimColor> · talk loose, send tight</Text>
+        {offline && <Text color="green" bold>{"  offline"}</Text>}
       </Box>
 
       {mode === "input" && (

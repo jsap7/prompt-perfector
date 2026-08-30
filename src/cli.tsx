@@ -3,7 +3,9 @@ import React from "react";
 import { render as inkRender } from "ink";
 import { App } from "./ui/App.js";
 import { loadConfig, ensureConfig, CONFIG_PATH } from "./core/config.js";
-import { analyze } from "./core/lint.js";
+import { analyze, lint, score } from "./core/lint.js";
+import { extractOffline } from "./core/extract.js";
+import { render, scorableText } from "./core/render.js";
 import { runPipeline } from "./core/run.js";
 import { copy } from "./core/clipboard.js";
 import { stats } from "./core/history.js";
@@ -33,6 +35,7 @@ ${c.bold("USAGE")}
   pp "some request"         perfect it, print it, copy it, exit
   echo "..." | pp           same, from stdin
   pp --lint "some request"  score it only, no API call, free
+  pp --offline "..."        build a full prompt with no API call, using your repo
   pp --auth                 show which credential PP is using
   pp --stats                what PP has saved you so far
 
@@ -67,6 +70,39 @@ async function readStdin(): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
   return Buffer.concat(chunks).toString("utf8");
+}
+
+function runOffline(text: string, config: ReturnType<typeof loadConfig>): string {
+  const before = analyze(text, config.perAcu).before;
+  const { perfected, repo, resolved } = extractOffline(text, config);
+  const out = render(perfected);
+  const after = score(lint(scorableText(out)), config.perAcu);
+
+  process.stdout.write("\n" + out + "\n");
+
+  const where = repo.root
+    ? c.dim(`repo: ${repo.name} · ${repo.files.length} files indexed`)
+    : c.yellow("not inside a git repo — run PP from your project for file lookup");
+  process.stdout.write(where + "\n");
+
+  if (resolved.length) {
+    process.stdout.write(
+      c.dim(`resolved locally: ${resolved.filter((m) => m.score >= 2).map((r) => r.path).join(", ")}\n`),
+    );
+  }
+  process.stdout.write(
+    c.dim(`risk ${before.score} → ${after.score}`) +
+      c.dim(`  ·  ~${before.acuLow}-${before.acuHigh} → ~${after.acuLow}-${after.acuHigh} ACU`) +
+      c.green("  ·  no API call\n"),
+  );
+  if (perfected.gaps.length) {
+    process.stdout.write(
+      c.yellow(`\n${perfected.gaps.length} thing${perfected.gaps.length === 1 ? "" : "s"} PP could not determine — fill these in:\n`),
+    );
+    for (const g of perfected.gaps) process.stdout.write(c.yellow(`  ? ${g}\n`));
+  }
+  process.stdout.write("\n");
+  return out;
 }
 
 async function main() {
@@ -178,6 +214,7 @@ async function main() {
 
   const config = loadConfig();
   const lintOnly = argv.includes("--lint");
+  const offlineFlag = argv.includes("--offline");
   const positional = argv
     .filter((a) => !a.startsWith("-") && a !== sub)
     .join(" ")
@@ -207,14 +244,32 @@ async function main() {
     return;
   }
 
-  if (!credentialSource()) {
-    process.stderr.write(
-      c.yellow("No Anthropic credentials found.\n") +
-        c.dim("  export ANTHROPIC_API_KEY=sk-ant-...   or run: ant auth login\n") +
-        c.dim("  Meanwhile, `pp --lint \"...\"` scores prompts for free.\n"),
-    );
-    process.exitCode = 1;
+  if (offlineFlag) {
+    if (!text) {
+      process.stderr.write(c.red("--offline needs some text.\n"));
+      process.exitCode = 1;
+      return;
+    }
+    const built = runOffline(text, config);
+    await copy(built).catch(() => {});
     return;
+  }
+
+  // No credentials is not a dead end — the offline builder still works.
+  if (!credentialSource() && text) {
+    process.stderr.write(
+      c.yellow("No credentials — building offline instead (no API call).\n"),
+    );
+    runOffline(text, config);
+    return;
+  }
+
+  const hasCreds = !!credentialSource();
+  if (!hasCreds) {
+    process.stderr.write(
+      c.yellow("No credentials — running in offline mode (no API call).\n") +
+        c.dim("  Full rewrites need: export ANTHROPIC_API_KEY=...  or  ant auth login\n"),
+    );
   }
 
   // Non-interactive: text supplied up front and we are not on a TTY-driven session.
@@ -234,7 +289,9 @@ async function main() {
     return;
   }
 
-  inkRender(<App config={config} initial={text || undefined} />);
+  inkRender(
+    <App config={config} initial={text || undefined} offline={!hasCreds || offlineFlag} />,
+  );
 }
 
 main().catch((e) => {

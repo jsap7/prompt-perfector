@@ -17,6 +17,7 @@ not sourced there is our own reasoning and is marked as such.
 | 7 | [Team setup](07-team-setup.md) | Credentials, onboarding, shared context |
 | 8 | [PP internals](08-pp-internals.md) | How this repo's tool works |
 | 9 | [Sources](09-sources.md) | Where each claim came from |
+| 10 | [Offline mode](10-offline-mode.md) | Building prompts with no API call at all |
 
 ## The one-paragraph version
 

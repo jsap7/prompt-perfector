@@ -76,8 +76,17 @@ own shell only.
 
 ### No key yet?
 
-`pp --lint "your prompt"` works with no credentials at all — it scores prompts
-offline for free. Good way to try it before setting up auth.
+Everything except the model rewrite works with no credentials:
+
+```bash
+pp --lint "your prompt"      # score it
+pp --offline "your prompt"   # build a full prompt, no API call
+```
+
+`--offline` reads your actual repo — it resolves `"the lint code"` to
+`src/core/lint.ts` via `git ls-files`, detects your test command, and applies
+the standard prohibitions. PP falls back to it automatically when no key is
+present. See [docs/10-offline-mode.md](docs/10-offline-mode.md).
 
 ## Use
 
@@ -159,6 +168,7 @@ The full write-up lives in [`docs/`](docs/00-index.md):
 | [Team setup](docs/07-team-setup.md) | Credentials, onboarding, shared context |
 | [PP internals](docs/08-pp-internals.md) | How this tool works |
 | [Sources](docs/09-sources.md) | Where each claim came from |
+| [Offline mode](docs/10-offline-mode.md) | Building prompts with no API call |
 
 ## Sharing credentials with your team
 
