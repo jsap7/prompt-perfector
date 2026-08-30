@@ -1,0 +1,34 @@
+{
+  "name": "prompt-perfector",
+  "version": "0.1.0",
+  "description": "Turn rambling voice dumps into tight, ACU-cheap Devin prompts.",
+  "type": "module",
+  "bin": {
+    "ppf": "./dist/cli.js",
+    "prompt-perfector": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.tsx",
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.122.0",
+    "ink": "^6.4.1",
+    "react": "^19.2.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
