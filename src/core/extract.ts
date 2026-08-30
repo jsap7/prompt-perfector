@@ -1,6 +1,7 @@
 import type { PerfectedPrompt } from "./types.js";
 import { normalize } from "./normalize.js";
 import { detectRepo, resolveFiles, type RepoContext, type FileMatch } from "./repo.js";
+import { pickRepo, resolveAgainstIndex, type SymbolRef } from "./repoIndex.js";
 import type { Config, RepoProfile } from "./config.js";
 
 /**
@@ -36,7 +37,7 @@ const ACCEPTANCE =
   /\b(should|must|so that|such that|expects?|returns?|no longer|instead of|rather than|until|ends? up|results? in)\b/i;
 
 const ACTION =
-  /\b(add|create|fix|remove|delete|update|change|rename|move|write|implement|migrate|bump|upgrade|wire|hook|expose|handle|support|replace|revert|set|raise|lower|increase|decrease|switch|extract|split|merge|rename)\b/i;
+  /\b(add|create|fix|remove|delete|update|change|rename|move|write|implement|migrate|bump|upgrade|wire|hook|expose|handle|support|replace|revert|set|raise|lower|increase|decrease|switch|extract|split|merge|rename|loosen|tighten|relax|adjust|tune|reduce|enable|disable|rework|refactor|bump)\b/i;
 
 /** Prohibitions worth stating on every task, regardless of what it is. */
 const BASE_PROHIBITIONS = [
@@ -80,6 +81,7 @@ function stripNavigation(s: string): string {
       "",
     )
     .replace(/^(?:file|the\s+file)\s+[\w./@-]+\s*(?:,|and)?\s*/i, "")
+    .replace(/^[,;:\s]+/, "")
     .trim();
 }
 
@@ -93,6 +95,7 @@ function deriveTitle(objective: string): string {
     .replace(/^(please\s+)?/i, "")
     .split(/\s+(?:that|which|when|where|so|because|if|after|before)\s+/i)[0]!
     .replace(/[,;]\s*(?:verify|confirm|check|run|then)\b.*$/i, "")
+    .replace(/,.*$/, "")
     .trim();
   const words = head.split(/\s+/).slice(0, 8).join(" ").replace(/[.,;:]$/, "");
   return titleCase(words) || "Untitled task";
@@ -102,9 +105,12 @@ export interface OfflineResult {
   perfected: PerfectedPrompt;
   /** What normalization cleaned up. */
   changes: string[];
-  /** Files resolved from the local repo rather than stated outright. */
+  /** Files resolved from the repo rather than stated outright. */
   resolved: FileMatch[];
   repo: RepoContext;
+  /** Set when resolution came from a registered index rather than the cwd. */
+  indexName?: string;
+  symbols: SymbolRef[];
 }
 
 export function extractOffline(
@@ -113,7 +119,13 @@ export function extractOffline(
   cwd = process.cwd(),
 ): OfflineResult {
   const { text, changes } = normalize(raw);
-  const ctx = detectRepo(cwd);
+
+  // A registered repo named in the request beats whatever directory you happen
+  // to be standing in — you dictate from anywhere, not from inside the repo.
+  const idx = pickRepo(raw);
+  const ctx: RepoContext = idx
+    ? { root: idx.root, name: idx.name, testCommand: idx.testCommand, files: idx.files }
+    : detectRepo(cwd);
   const profile: RepoProfile | undefined =
     config.repos.find((r) => r.name === ctx.name) ??
     config.repos.find((r) => r.name === config.defaultRepo);
@@ -126,11 +138,32 @@ export function extractOffline(
   );
 
   // Only look up what was not stated outright.
-  const resolved = explicit.length ? [] : resolveFiles(text, ctx, 5);
+  const matched = explicit.length
+    ? []
+    : idx
+      ? resolveAgainstIndex(text, idx, 5)
+      : resolveFiles(text, ctx, 5);
+
+  // Absolute floor, plus a relative one: anything far below the best match is
+  // noise, and a noisy file list invites Devin to read files it does not need.
+  const topScore = matched[0]?.score ?? 0;
+  const THRESHOLD = Math.max(idx ? 3 : 2, topScore * 0.45);
+  const MAX_FILES_OUT = 4;
+  const resolved: FileMatch[] = matched.map((m) =>
+    "via" in m && Array.isArray(m.via)
+      ? { path: m.path, via: m.via.join(", "), score: m.score }
+      : (m as FileMatch),
+  );
+  const symbols: SymbolRef[] = matched
+    .flatMap((m) => ("symbol" in m && m.symbol ? [m.symbol] : []))
+    .filter((sym) => matched.find((m) => m.path === sym.file)!.score >= THRESHOLD);
   const knownGood = new Set(ctx.files);
   const files = [
     ...explicit.filter((p) => !ctx.files.length || knownGood.has(p) || !p.includes("/")),
-    ...resolved.filter((m) => m.score >= 2).map((m) => m.path),
+    ...resolved
+      .filter((m) => m.score >= THRESHOLD)
+      .slice(0, MAX_FILES_OUT)
+      .map((m) => m.path),
   ];
 
   // --- verification ------------------------------------------------------
@@ -164,13 +197,13 @@ export function extractOffline(
 
   // --- constraints -------------------------------------------------------
   const constraints = [
-    ...(profile?.conventions ?? []),
+    ...(profile?.conventions ?? idx?.conventions ?? []),
     ...config.standingConstraints,
   ];
 
   // --- prohibitions ------------------------------------------------------
   const outOfScope = [...prohibitions, ...BASE_PROHIBITIONS];
-  for (const dir of profile?.offLimits ?? []) {
+  for (const dir of profile?.offLimits ?? idx?.offLimits ?? []) {
     outOfScope.push(`Never modify anything under \`${dir}\`.`);
   }
 
@@ -190,8 +223,18 @@ export function extractOffline(
     gaps.push("What is observably true when this is done?");
   }
 
+  // Pointing at a definition is a tighter anchor than pointing at a file.
+  const anchors = symbols
+    .slice(0, 4)
+    .map((sy) => `\`${sy.name}\` (${sy.kind}) is at ${sy.file}:${sy.line}.`);
+
   const notes: string[] = [];
   if (changes.length) notes.push(changes.join("; ") + ".");
+  if (idx) {
+    notes.push(
+      `Resolved against the indexed \`${idx.name}\` repo (${idx.files.length} files, ${idx.symbols.length} symbols), not the current directory.`,
+    );
+  }
   if (resolved.length && files.length) {
     notes.push(
       `Paths resolved from the local repo (matched on: ${[
@@ -210,7 +253,7 @@ export function extractOffline(
       objective: objective,
       filesInScope: [...new Set(files)],
       steps: steps.length > 1 ? steps : [],
-      constraints,
+      constraints: anchors.length ? [...anchors, ...constraints] : constraints,
       outOfScope,
       acceptance,
       verification,
@@ -221,5 +264,7 @@ export function extractOffline(
     changes,
     resolved,
     repo: ctx,
+    indexName: idx?.name,
+    symbols,
   };
 }

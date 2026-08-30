@@ -12,6 +12,13 @@ import { stats } from "./core/history.js";
 import { credentialSource } from "./core/auth.js";
 import { buildKnowledge, renderKnowledge } from "./core/knowledge.js";
 import { findClusters, draftPlaybook, renderPlaybook } from "./core/playbook.js";
+import {
+  buildIndex,
+  saveIndex,
+  loadRegistry,
+  removeIndex,
+} from "./core/repoIndex.js";
+import pathMod from "node:path";
 import { bandLabel } from "./ui/theme.js";
 
 const c = {
@@ -38,6 +45,12 @@ ${c.bold("USAGE")}
   pp --offline "..."        build a full prompt with no API call, using your repo
   pp --auth                 show which credential PP is using
   pp --stats                what PP has saved you so far
+
+${c.bold("REPOS")}
+  pp repo add <path>        index a repo so PP can resolve its files from anywhere
+  pp repo list              show indexed repos
+  pp repo refresh <path>    re-index after the code moves
+  pp repo rm <name>         forget one
 
 ${c.bold("CUT THE FIXED COSTS")}
   pp knowledge              export your repo profiles as Devin Knowledge entries
@@ -120,8 +133,76 @@ async function main() {
 
   // Only exact verbs count as subcommands, otherwise `pp "some request"`
   // would have its first word swallowed as a command name.
-  const SUBCOMMANDS = new Set(["knowledge", "playbook"]);
+  const SUBCOMMANDS = new Set(["knowledge", "playbook", "repo"]);
   const sub = argv.find((a) => SUBCOMMANDS.has(a));
+
+  if (sub === "repo") {
+    const rest = argv.filter((a) => a !== "repo" && !a.startsWith("-"));
+    const verb = rest[0] ?? "list";
+
+    if (verb === "list") {
+      const reg = loadRegistry();
+      if (!reg.length) {
+        process.stdout.write(
+          c.dim("\nNo repos indexed yet.\n") +
+            c.dim("  pp repo add ~/Development/your-repo\n\n"),
+        );
+        return;
+      }
+      process.stdout.write("\n");
+      for (const r of reg) {
+        process.stdout.write(
+          `  ${c.bold(r.name.padEnd(22))}${c.dim(`${r.fileCount} files · ${r.symbolCount} symbols`)}\n` +
+            `  ${c.dim(r.root)}\n` +
+            `  ${c.dim("indexed " + r.indexedAt.slice(0, 16).replace("T", " "))}\n\n`,
+        );
+      }
+      return;
+    }
+
+    if (verb === "add" || verb === "refresh") {
+      const target = rest[1]
+        ? pathMod.resolve(rest[1].replace(/^~/, process.env.HOME ?? "~"))
+        : process.cwd();
+      process.stdout.write(c.dim(`indexing ${target}…\n`));
+      try {
+        const started = Date.now();
+        const idx = buildIndex(target);
+        const entry = saveIndex(idx);
+        process.stdout.write(
+          c.green(`\n  ${entry.name}\n`) +
+            c.dim(`  ${entry.fileCount} files · ${entry.symbolCount} symbols · ${Object.keys(idx.tokens).length} distinctive tokens\n`) +
+            c.dim(`  test command: ${idx.testCommand ?? "not detected"}\n`) +
+            (idx.offLimits.length ? c.dim(`  off-limits: ${idx.offLimits.join(", ")}\n`) : "") +
+            c.dim(`  took ${((Date.now() - started) / 1000).toFixed(1)}s\n\n`) +
+            c.dim(`  now works from anywhere: pp --offline "fix X in ${entry.name}"\n\n`),
+        );
+      } catch (e) {
+        process.stderr.write(c.red(`\n${e instanceof Error ? e.message : String(e)}\n\n`));
+        process.exitCode = 1;
+      }
+      return;
+    }
+
+    if (verb === "rm" || verb === "remove") {
+      const name = rest[1];
+      if (!name) {
+        process.stderr.write(c.red("which repo? pp repo rm <name>\n"));
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(
+        removeIndex(name)
+          ? c.green(`removed ${name}\n`)
+          : c.yellow(`${name} was not indexed\n`),
+      );
+      return;
+    }
+
+    process.stderr.write(c.red(`unknown: pp repo ${verb}\n`) + c.dim("  add | list | refresh | rm\n"));
+    process.exitCode = 1;
+    return;
+  }
 
   if (sub === "knowledge") {
     const cfg = loadConfig();

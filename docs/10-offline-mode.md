@@ -15,16 +15,57 @@ key never means a missing tool.
 
 Three things a local tool can do that a model genuinely cannot:
 
+### 0. Indexed repos, resolvable from anywhere
+
+You dictate from wherever you happen to be — not from inside the repo the task
+concerns. So register your repos once:
+
+```bash
+pp repo add ~/Development/checkout
+pp repo list
+pp repo refresh ~/Development/checkout   # after the code moves
+```
+
+Indexing walks `git ls-files` and builds three things: the file list, a symbol
+table (functions, classes, types, methods across TS/JS/Python/Go/Rust/Java),
+and an inverted token index over both paths and file *contents*. It also
+auto-detects the test command, generated directories worth marking off-limits,
+and conventions it can infer (strict TypeScript, ESLint, Prettier, test layout).
+
+After that, naming the repo in your request is enough:
+
+```bash
+pp --offline "in checkout, the retry logic drops the last attempt, fix it"
+```
+
+PP resolves against the `checkout` index no matter what directory you are in.
+
 ### 1. It can read your repo
+
+
 
 The model *infers* file paths. PP *looks them up*, via `git ls-files`. This is
 the single biggest smell — `NO_PATHS` — and offline mode kills it with ground
 truth rather than a guess.
 
-Say "the lint code" from inside the repo and it resolves `src/core/lint.ts`.
-Matching is on distinctive path tokens; a word that hits more than eight files
-is treated as uninformative and ignored, because a wrong path costs more than
-no path.
+Say "the lint code" and it resolves `src/core/lint.ts`. Matching runs on
+distinctive tokens drawn from paths, symbol names, and file contents. Scoring
+is inverse-fanout — a token found in one file is far stronger evidence than one
+found in eight — and any token appearing in more than eight files is discarded
+at index time as uninformative. Results are cut both by an absolute floor and a
+relative one, since a long tail of weak matches is noise, and a noisy file list
+invites Devin to read files it does not need.
+
+**Symbol anchors.** When a symbol name matches, PP pins the exact definition:
+
+```
+## Constraints
+- `jaccard` (function) is at src/core/playbook.ts:44.
+```
+
+That is a tighter anchor than a file path — Devin opens one function instead of
+scanning a module. Whole-symbol matches outrank partial ones, which outrank
+plain content hits.
 
 It also detects the repo name from the git remote and the test command from
 `package.json`, `Makefile`, `pyproject.toml`, `Cargo.toml`, `go.mod`, and
@@ -79,8 +120,13 @@ Honest limits — this is where the model earns its cents:
 - **No task splitting.** It won't notice you bundled three unrelated asks.
 - **No inference.** If you didn't say the acceptance criteria, it asks rather
   than deriving something sensible from context.
-- **Lexical, not semantic, file matching.** Say "the payment thing" when the
-  file is `billing.ts` and it won't connect them.
+- **Lexical, not semantic, file matching.** Content indexing narrows this gap a
+  lot — "the payment thing" now finds `billing.ts` if that file actually
+  mentions payments — but a synonym that appears nowhere in the code still
+  won't connect.
+- **Indexes go stale.** `pp repo refresh` after the code moves. A stale index
+  points at paths that no longer exist, which is the failure mode PP exists to
+  prevent.
 
 Typical result: offline takes a wide-open prompt from ~85 to ~30. The model
 pass takes it closer to 0. Offline gets most of the structural win for free;

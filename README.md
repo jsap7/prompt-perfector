@@ -83,6 +83,13 @@ pp --lint "your prompt"      # score it
 pp --offline "your prompt"   # build a full prompt, no API call
 ```
 
+Index your work repos once and they resolve from any directory:
+
+```bash
+pp repo add ~/Development/checkout
+pp --offline "in checkout, fix the retry logic"   # works from anywhere
+```
+
 `--offline` reads your actual repo — it resolves `"the lint code"` to
 `src/core/lint.ts` via `git ls-files`, detects your test command, and applies
 the standard prohibitions. PP falls back to it automatically when no key is
