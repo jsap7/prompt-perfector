@@ -176,6 +176,7 @@ The full write-up lives in [`docs/`](docs/00-index.md):
 | [PP internals](docs/08-pp-internals.md) | How this tool works |
 | [Sources](docs/09-sources.md) | Where each claim came from |
 | [Offline mode](docs/10-offline-mode.md) | Building prompts with no API call |
+| [Agent workflow plan](docs/11-agent-workflow-plan.md) | Planned next: `pp init`, codebase map, test map, work item contract |
 
 ## Sharing credentials with your team
 
