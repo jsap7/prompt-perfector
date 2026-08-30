@@ -1,7 +1,9 @@
 # Agent workflow plan
 
-Drafted August 2026. **`pp init` is now built** (§ The shape). The agents in
-§ The agents are still planned — mark them up.
+Drafted August 2026. **All of this is now built** — `pp init` (§ The shape) and
+the three agents (§ The agents), documented in
+[12-work-items-and-triage.md](12-work-items-and-triage.md). Kept as the record
+of the reasoning and the build order.
 
 Target stack: **React frontend, Python backend, monorepo, unit + E2E tests,
 GitLab, Devin as the executing agent.**

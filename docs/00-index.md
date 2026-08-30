@@ -18,7 +18,8 @@ not sourced there is our own reasoning and is marked as such.
 | 8 | [PP internals](08-pp-internals.md) | How this repo's tool works |
 | 9 | [Sources](09-sources.md) | Where each claim came from |
 | 10 | [Offline mode](10-offline-mode.md) | Building prompts with no API call at all |
-| 11 | [Agent workflow plan](11-agent-workflow-plan.md) | **Planned, not built** — `pp init`, the map, the test map, the work item contract |
+| 11 | [Agent workflow plan](11-agent-workflow-plan.md) | The overall design and build order |
+| 12 | [Work items & triage](12-work-items-and-triage.md) | `pp issue`, `pp gate`, `pp triage` — the small-model agents |
 
 ## The one-paragraph version
 

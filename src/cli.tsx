@@ -21,6 +21,10 @@ import {
 import pathMod from "node:path";
 import { analyzeProject } from "./core/project.js";
 import { emitAgentFiles, writeFiles } from "./core/emit.js";
+import { createWorkItem, scopeGate } from "./core/issue.js";
+import { checkReadiness, renderWorkItem } from "./core/workItem.js";
+import { triageFailure, readKnownFlaky } from "./core/triage.js";
+import fsMod from "node:fs";
 import { bandLabel } from "./ui/theme.js";
 
 const c = {
@@ -59,6 +63,12 @@ ${c.bold("REPOS")}
   pp repo list              show indexed repos
   pp repo refresh <path>    re-index after the code moves
   pp repo rm <name>         forget one
+
+${c.bold("WORK ITEMS")}
+  pp issue "..."            turn a feature request into a GitLab work item
+  pp gate --file item.md    is this ready for an agent? exits 1 if not
+  pp triage --file ci.log   classify a CI failure: real / flaky / environment
+                            (all three run on a small model — fractions of a cent)
 
 ${c.bold("CUT THE FIXED COSTS")}
   pp knowledge              export your repo profiles as Devin Knowledge entries
@@ -141,8 +151,144 @@ async function main() {
 
   // Only exact verbs count as subcommands, otherwise `pp "some request"`
   // would have its first word swallowed as a command name.
-  const SUBCOMMANDS = new Set(["knowledge", "playbook", "repo", "init"]);
+  const SUBCOMMANDS = new Set(["knowledge", "playbook", "repo", "init", "issue", "gate", "triage"]);
   const sub = argv.find((a) => SUBCOMMANDS.has(a));
+
+  if (sub === "issue" || sub === "gate" || sub === "triage") {
+    const cfg = loadConfig();
+    const body = argv
+      .filter((a) => a !== sub && !a.startsWith("-"))
+      .join(" ")
+      .trim();
+    const fileArgIdx = argv.indexOf("--file");
+    const fileArg = fileArgIdx >= 0 ? argv[fileArgIdx + 1] : undefined;
+
+    let text = body;
+    if (fileArg) {
+      try {
+        text = fsMod.readFileSync(fileArg, "utf8");
+      } catch {
+        process.stderr.write(c.red(`cannot read ${fileArg}\n`));
+        process.exitCode = 1;
+        return;
+      }
+    } else if (!text && !process.stdin.isTTY) {
+      text = (await readStdin()).trim();
+    }
+
+    if (!text) {
+      process.stderr.write(
+        c.red(`pp ${sub} needs input.\n`) +
+          c.dim(`  pp ${sub} "..."   |   pp ${sub} --file path   |   cat x | pp ${sub}\n`),
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    if (!credentialSource()) {
+      process.stderr.write(c.yellow(`pp ${sub} needs credentials.\n`));
+      process.exitCode = 1;
+      return;
+    }
+
+    const modelFlagIdx = argv.indexOf("--model");
+    const modelOverride = modelFlagIdx >= 0 ? argv[modelFlagIdx + 1] : undefined;
+
+    try {
+      if (sub === "issue") {
+        process.stdout.write(c.dim(`scoping…\n`));
+        const { item, costUsd, repoName } = await createWorkItem(text, cfg, modelOverride);
+        const rendered = renderWorkItem(item);
+        const readiness = checkReadiness(item);
+
+        process.stdout.write("\n" + c.bold(`# ${item.title}\n\n`) + rendered + "\n");
+        if (repoName) process.stdout.write(c.dim(`resolved against indexed repo: ${repoName}\n`));
+
+        process.stdout.write(
+          readiness.ready
+            ? c.green(`ready for an agent  ·  ${readiness.score}/100\n`)
+            : c.yellow(`not ready  ·  ${readiness.score}/100\n`),
+        );
+        for (const b of readiness.blockers) {
+          process.stdout.write(c.yellow(`  ✗ ${b.field}: ${b.why}\n`));
+        }
+        for (const w of readiness.warnings) {
+          process.stdout.write(c.dim(`  ~ ${w.field}: ${w.why}\n`));
+        }
+        await copy(rendered).catch(() => {});
+        process.stdout.write(
+          c.green(`\ncopied — paste into a GitLab work item\n`) +
+            c.dim(`  cost ${costUsd < 0.01 ? "<$0.01" : "$" + costUsd.toFixed(3)}\n\n`),
+        );
+        return;
+      }
+
+      if (sub === "gate") {
+        process.stdout.write(c.dim(`checking…\n`));
+        const { verdict, costUsd } = await scopeGate(text, cfg, modelOverride);
+        const paint =
+          verdict.verdict === "ready" ? c.green : verdict.verdict === "too-big" ? c.red : c.yellow;
+        process.stdout.write(`\n${paint(verdict.verdict.toUpperCase())}  ${c.dim(verdict.reasoning)}\n`);
+        if (verdict.questions.length) {
+          process.stdout.write(c.yellow(`\nanswer before assigning:\n`));
+          for (const q of verdict.questions) process.stdout.write(c.yellow(`  ? ${q}\n`));
+        }
+        if (verdict.risks.length) {
+          process.stdout.write(c.dim(`\nrisks:\n`));
+          for (const r of verdict.risks) process.stdout.write(c.dim(`  · ${r}\n`));
+        }
+        if (verdict.suggestedSplit.length) {
+          process.stdout.write(c.yellow(`\nsplit into:\n`));
+          for (const sp of verdict.suggestedSplit) process.stdout.write(c.yellow(`  ⇢ ${sp}\n`));
+        }
+        process.stdout.write(
+          c.dim(`\ncost ${costUsd < 0.01 ? "<$0.01" : "$" + costUsd.toFixed(3)}\n\n`),
+        );
+        process.exitCode = verdict.verdict === "ready" ? 0 : 1;
+        return;
+      }
+
+      // triage
+      process.stdout.write(c.dim(`triaging…\n`));
+      let knownFlaky: string[] = [];
+      try {
+        knownFlaky = readKnownFlaky(
+          fsMod.readFileSync(pathMod.join(process.cwd(), ".agents/map/tests.md"), "utf8"),
+        );
+      } catch {
+        /* no map here */
+      }
+      const { triage, costUsd } = await triageFailure(text, cfg, { knownFlaky, modelOverride });
+      const paint =
+        triage.category === "real" ? c.red : triage.category === "flaky" ? c.yellow : c.cyan;
+      process.stdout.write(
+        `\n${paint(triage.category.toUpperCase())} ${c.dim(`(${triage.confidence} confidence)`)}\n\n` +
+          `${triage.summary}\n\n`,
+      );
+      if (triage.evidence.length) {
+        process.stdout.write(c.dim(`evidence:\n`));
+        for (const e of triage.evidence) process.stdout.write(c.dim(`  · ${e}\n`));
+      }
+      if (triage.suspectFiles.length) {
+        process.stdout.write(c.dim(`\nfiles named in the log:\n`));
+        for (const f of triage.suspectFiles) process.stdout.write(c.dim(`  · ${f}\n`));
+      }
+      process.stdout.write(`\n${c.bold("next:")} ${triage.suggestedAction}\n`);
+      if (triage.agentPrompt) {
+        process.stdout.write(`\n${triage.agentPrompt}\n`);
+        await copy(triage.agentPrompt).catch(() => {});
+        process.stdout.write(c.green(`\ncopied\n`));
+      }
+      process.stdout.write(
+        c.dim(`\ncost ${costUsd < 0.01 ? "<$0.01" : "$" + costUsd.toFixed(3)}\n\n`),
+      );
+      return;
+    } catch (e) {
+      process.stderr.write(c.red(`\n${e instanceof Error ? e.message : String(e)}\n\n`));
+      process.exitCode = 1;
+      return;
+    }
+  }
 
   if (sub === "init") {
     const rest = argv.filter((a) => a !== "init" && !a.startsWith("-"));

@@ -14,6 +14,8 @@ export interface RepoProfile {
 
 export interface Config {
   model: string;
+  /** Small model for extraction/classification work: issues, gate, triage. */
+  smallModel: string;
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   /** $ per ACU. 2.00 on Team, 2.25 on Core. */
   perAcu: number;
@@ -25,6 +27,9 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Config = {
   model: "claude-opus-5",
+  // Structured extraction and classification are not reasoning tasks. Routing
+  // them to a large model by default is where most overspend comes from.
+  smallModel: "claude-haiku-4-5",
   effort: "medium",
   perAcu: 2.25,
   standingConstraints: [
