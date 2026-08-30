@@ -8,6 +8,8 @@ import { runPipeline } from "./core/run.js";
 import { copy } from "./core/clipboard.js";
 import { stats } from "./core/history.js";
 import { credentialSource } from "./core/auth.js";
+import { buildKnowledge, renderKnowledge } from "./core/knowledge.js";
+import { findClusters, draftPlaybook, renderPlaybook } from "./core/playbook.js";
 import { bandLabel } from "./ui/theme.js";
 
 const c = {
@@ -33,6 +35,11 @@ ${c.bold("USAGE")}
   pp --lint "some request"  score it only, no API call, free
   pp --auth                 show which credential PP is using
   pp --stats                what PP has saved you so far
+
+${c.bold("CUT THE FIXED COSTS")}
+  pp knowledge              export your repo profiles as Devin Knowledge entries
+  pp playbook               find task shapes you have repeated, draft a Playbook
+  pp playbook --list        just list the candidates, no API call
   pp --config               create/print the config path
   pp --help
 
@@ -75,6 +82,76 @@ async function main() {
     return;
   }
 
+  // Only exact verbs count as subcommands, otherwise `pp "some request"`
+  // would have its first word swallowed as a command name.
+  const SUBCOMMANDS = new Set(["knowledge", "playbook"]);
+  const sub = argv.find((a) => SUBCOMMANDS.has(a));
+
+  if (sub === "knowledge") {
+    const cfg = loadConfig();
+    const entries = buildKnowledge(cfg);
+    const out = renderKnowledge(entries);
+    process.stdout.write("\n" + out + "\n");
+    if (entries.length) {
+      await copy(out).catch(() => {});
+      process.stdout.write(
+        c.green(
+          `copied — ${entries.length} entr${entries.length === 1 ? "y" : "ies"} ready to paste into Devin Knowledge\n`,
+        ) +
+          c.dim("  app.devin.ai → Settings → Knowledge\n\n"),
+      );
+    }
+    return;
+  }
+
+  if (sub === "playbook") {
+    const cfg = loadConfig();
+    const clusters = findClusters(3);
+
+    if (!clusters.length) {
+      process.stdout.write(
+        c.dim("\nNo repeated task shapes yet.\n") +
+          c.dim("  PP needs at least 3 similar prompts before a shape is worth scripting.\n") +
+          c.dim("  Keep using it; run this again in a couple of weeks.\n\n"),
+      );
+      return;
+    }
+
+    process.stdout.write(
+      `\n${c.bold(String(clusters.length))} repeated task shape${clusters.length === 1 ? "" : "s"} found:\n\n`,
+    );
+    clusters.forEach((cl, i) => {
+      process.stdout.write(
+        `  ${c.bold(String(i + 1))}. ${c.cyan(String(cl.members.length) + "×")} ` +
+          `${cl.members[0]?.title ?? "(untitled)"}\n` +
+          `     ${c.dim(cl.signature.join(", "))}\n`,
+      );
+    });
+
+    if (argv.includes("--list")) {
+      process.stdout.write(c.dim("\n  drop --list to draft the top one as a Playbook\n\n"));
+      return;
+    }
+
+    if (!credentialSource()) {
+      process.stderr.write(c.yellow("\nDrafting needs credentials. Use --list to browse for free.\n\n"));
+      process.exitCode = 1;
+      return;
+    }
+
+    const top = clusters[0]!;
+    process.stdout.write(c.dim(`\ndrafting from ${top.members.length} examples…\n`));
+    const { playbook, costUsd } = await draftPlaybook(top, cfg);
+    const out = renderPlaybook(playbook);
+    process.stdout.write("\n" + out + "\n");
+    await copy(out).catch(() => {});
+    process.stdout.write(
+      c.green("copied — paste into Devin → Playbooks\n") +
+        c.dim(`  drafting cost ${costUsd < 0.01 ? "<$0.01" : "$" + costUsd.toFixed(2)}\n\n`),
+    );
+    return;
+  }
+
   if (argv.includes("--auth")) {
     const src = credentialSource();
     process.stdout.write(
@@ -101,7 +178,10 @@ async function main() {
 
   const config = loadConfig();
   const lintOnly = argv.includes("--lint");
-  const positional = argv.filter((a) => !a.startsWith("-")).join(" ").trim();
+  const positional = argv
+    .filter((a) => !a.startsWith("-") && a !== sub)
+    .join(" ")
+    .trim();
   // Only touch stdin when there is no argv text. Reading it unconditionally
   // hangs forever wherever stdin is an open pipe that never closes (CI, scripts).
   const piped = positional ? "" : (await readStdin()).trim();

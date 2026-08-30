@@ -82,6 +82,46 @@ Three parts do the heavy lifting:
 - **Split into separate sessions** — Cognition recommends one session per task.
   Bundled asks make later work pay to re-read earlier context.
 
+## Beyond prompting
+
+Prompt quality is the visible lever, not the biggest one. Setup and orientation
+are **fixed costs re-paid every session** — a machine snapshot and good
+Knowledge eliminate them outright, and no prompt improvement can.
+
+PP helps you move that context to where it actually pays:
+
+```bash
+pp knowledge      # your repo profiles → Devin Knowledge entries, clipboard-ready
+```
+
+`~/.pp/config.json` only helps prompts that go through PP. Knowledge helps
+*every* session, including ones started from Slack, a ticket, or the API.
+
+```bash
+pp playbook --list    # task shapes you have repeated 3+ times
+pp playbook           # draft the top one as a Devin Playbook
+```
+
+Detection clusters PP's own history by title, objective, verification command,
+and file types touched. Playbooks are the one automation step that is purely
+defensive — they cut per-session cost without increasing session volume.
+
+## Docs
+
+The full write-up lives in [`docs/`](docs/00-index.md):
+
+| | |
+|---|---|
+| [ACU cost model](docs/01-acu-cost-model.md) | What you're buying, and why token-thinking misleads |
+| [Prompting Devin](docs/02-prompting-devin.md) | The structure, and the smell catalogue |
+| [Fixed costs](docs/03-fixed-costs.md) | Snapshots and Knowledge — the biggest lever |
+| [Playbooks](docs/04-playbooks.md) | Scripting what you repeat |
+| [Automation](docs/05-automation.md) | How far it goes, and the order to do it in |
+| [Measurement](docs/06-measurement.md) | Session Insights, and the number that matters |
+| [Team setup](docs/07-team-setup.md) | Credentials, onboarding, shared context |
+| [PP internals](docs/08-pp-internals.md) | How this tool works |
+| [Sources](docs/09-sources.md) | Where each claim came from |
+
 ## Sharing credentials with your team
 
 You want Asher using PP without setting up his own Anthropic account or

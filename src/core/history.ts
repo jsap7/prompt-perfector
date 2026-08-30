@@ -12,6 +12,13 @@ export interface HistoryEntry {
   scoreAfter: number;
   savedAcuLow: number;
   savedAcuHigh: number;
+  /** Structured fields, added in 0.2 for playbook detection. Older rows lack them. */
+  title?: string;
+  repo?: string | null;
+  objective?: string;
+  filesInScope?: string[];
+  steps?: string[];
+  verification?: string[];
 }
 
 export function record(entry: HistoryEntry): void {
@@ -29,7 +36,13 @@ export function readAll(): HistoryEntry[] {
       .readFileSync(HISTORY_PATH, "utf8")
       .split("\n")
       .filter(Boolean)
-      .map((l) => JSON.parse(l) as HistoryEntry);
+      .flatMap((l) => {
+        try {
+          return [JSON.parse(l) as HistoryEntry];
+        } catch {
+          return []; // skip a torn line rather than losing the whole file
+        }
+      });
   } catch {
     return [];
   }
